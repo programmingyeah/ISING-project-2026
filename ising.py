@@ -12,7 +12,7 @@ T = 2.269
 h = 0.0
 J = 1.0
 
-EQUILIBRATION_SWEEPS = 50
+EQUILIBRATION_SWEEPS = 50 # 
 MEASUREMENT_SWEEPS = 200
 SAMPLE_EVERY = 2
 BLOCK_SIZE = 20
@@ -124,6 +124,7 @@ for update in range(1, EQUILIBRATION_SWEEPS + 1):
 
 absolute_magnetization = []
 energy = []
+energy_squared = []
 print("measurement: 0%", flush=True)
 next_progress = 10
 for update in range(1, MEASUREMENT_SWEEPS + 1):
@@ -132,6 +133,7 @@ for update in range(1, MEASUREMENT_SWEEPS + 1):
         m = spins.mean()
         absolute_magnetization.append(abs(m))
         energy.append(energy_per_spin(spins))
+        energy_squared.append(energy[-1]**2)
     percent = 100 * update // MEASUREMENT_SWEEPS
     if percent >= next_progress:
         print(f"measurement: {percent}%", flush=True)
@@ -139,10 +141,14 @@ for update in range(1, MEASUREMENT_SWEEPS + 1):
 
 mean_abs_m, error_abs_m = mean_and_error(absolute_magnetization)
 mean_e, error_e = mean_and_error(energy)
+mean_e2, error_e2 = mean_and_error(energy_squared)
+heat_capacity_c = (mean_e2 - mean_e**2)/(T**2)
 
 #output
 print(f"mean |magnetization|:   {mean_abs_m:.4f} ± {error_abs_m:.4f}")
 print(f"mean energy per spin:   {mean_e:+.4f} ± {error_e:.4f}")
+print(f"mean squared energy per spin:   {mean_e2:+.4f} ± {error_e2:.4f}")
+print(f"heat capacity:   {heat_capacity_c:+.20f}") # ± {error_e:.4f}"))
 
 fig, ax = plt.subplots(figsize=(7, 7))
 ax.imshow(spins, cmap="binary", vmin=-1, vmax=1, interpolation="nearest")
