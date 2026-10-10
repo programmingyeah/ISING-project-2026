@@ -8,12 +8,12 @@ from numba import njit
 #opties
 
 L = 512
-T = 2.269
+T = 2.269185
 h = 0.0
 J = 1.0
 
 EQUILIBRATION_SWEEPS = 50 # 
-MEASUREMENT_SWEEPS = 200
+MEASUREMENT_SWEEPS = 1000
 SAMPLE_EVERY = 2
 BLOCK_SIZE = 20
 SEED = 1234
@@ -95,6 +95,17 @@ def energy_per_spin(spins):
     bonds += np.sum(spins * np.roll(spins, -1, axis=1))
     return (-J * bonds - h * spins.sum()) / spins.size
 
+
+def heat_capacity_and_error(energy):
+    energy = np.asarray(energy)
+    heat_capacity = L * L * np.var(energy, ddof=1) / T**2
+
+    number_of_blocks = len(energy) // BLOCK_SIZE
+    blocks = energy[:number_of_blocks * BLOCK_SIZE].reshape(number_of_blocks, BLOCK_SIZE)
+    block_heat_capacities = L * L * np.var(blocks, axis=1, ddof=1) / T**2
+    error = block_heat_capacities.std(ddof=1) / math.sqrt(number_of_blocks)
+    return heat_capacity, error
+
 #main
 rng = np.random.default_rng(SEED)
 p_neighbour = 1 - math.exp(-2 * J / T)
@@ -124,7 +135,6 @@ for update in range(1, EQUILIBRATION_SWEEPS + 1):
 
 absolute_magnetization = []
 energy = []
-energy_squared = []
 print("measurement: 0%", flush=True)
 next_progress = 10
 for update in range(1, MEASUREMENT_SWEEPS + 1):
@@ -133,7 +143,6 @@ for update in range(1, MEASUREMENT_SWEEPS + 1):
         m = spins.mean()
         absolute_magnetization.append(abs(m))
         energy.append(energy_per_spin(spins))
-        energy_squared.append(energy[-1]**2)
     percent = 100 * update // MEASUREMENT_SWEEPS
     if percent >= next_progress:
         print(f"measurement: {percent}%", flush=True)
@@ -141,14 +150,12 @@ for update in range(1, MEASUREMENT_SWEEPS + 1):
 
 mean_abs_m, error_abs_m = mean_and_error(absolute_magnetization)
 mean_e, error_e = mean_and_error(energy)
-mean_e2, error_e2 = mean_and_error(energy_squared)
-heat_capacity_c = (mean_e2 - mean_e**2)/(T**2)
+heat_capacity_c, heat_capacity_error = heat_capacity_and_error(energy)
 
 #output
 print(f"mean |magnetization|:   {mean_abs_m:.4f} ± {error_abs_m:.4f}")
 print(f"mean energy per spin:   {mean_e:+.4f} ± {error_e:.4f}")
-print(f"mean squared energy per spin:   {mean_e2:+.4f} ± {error_e2:.4f}")
-print(f"heat capacity:   {heat_capacity_c:+.20f}") # ± {error_e:.4f}"))
+print(f"heat capacity:     {heat_capacity_c:.4f} ± {heat_capacity_error:.4f}")
 
 fig, ax = plt.subplots(figsize=(7, 7))
 ax.imshow(spins, cmap="binary", vmin=-1, vmax=1, interpolation="nearest")
