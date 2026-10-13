@@ -1,6 +1,6 @@
 import math
-import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import os  #om te zien hoeveel cpu cores er zijn
+from concurrent.futures import ThreadPoolExecutor, as_completed  #voor meerdere runs tegelijk
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,31 +10,33 @@ from numba import njit
 #opties
 
 #resoluties
-L_values = [8,16,32,64,128,256,512]
+L_values = [8, 16, 32, 64, 128, 256]  #alle rooster groottes die we vergelijken
 
 #temperatuur domein
-T_CENTER = 2.27
-T_UNCERTAINTY = 0.006
-RANGE_SIGMAS = 5
-N_TEMPERATURES = 21
-T_values = np.linspace(
-    T_CENTER - RANGE_SIGMAS * T_UNCERTAINTY,
-    T_CENTER + RANGE_SIGMAS * T_UNCERTAINTY,
-    N_TEMPERATURES,
+T_CENTER = 2.269185  #beste huidige schatting voor Tc
+T_UNCERTAINTY = 0.06  #onzekerheid van die schatting
+RANGE_SIGMAS = 5  #scan van center min 5 sigma tot center plus 5 sigma
+N_TEMPERATURES = 21  #zoveel temperaturen in de scan
+T_values = np.linspace(  #maak een gelijk verdeelde temperatuur grid
+    T_CENTER - RANGE_SIGMAS * T_UNCERTAINTY,  #onderkant van het domein
+    T_CENTER + RANGE_SIGMAS * T_UNCERTAINTY,  #bovenkant van het domein
+    N_TEMPERATURES,  #aantal punten in dat domein
 )
-SLOPE_POINTS = 5
+SLOPE_POINTS = 5  #aantal punten rond Tc voor een binder slope fit
 
-#modelparameters
-h = 0.0
-J = 1.0
+#model parameters
+h = 0.0  #voor binder crossings hebben we een veld van 0 nodig
+J = 1.0  #standaard koppeling
 
-
-EQUILIBRATION_UPDATES = 50
+EQUILIBRATION_UPDATES = 50 #om wat sneller te gaan hebben we minder sweeps dan ising.py
 MEASUREMENT_UPDATES = 200
 SAMPLE_EVERY = 1
-N_RUNS = 5
-N_WORKERS = os.cpu_count() or 1
+N_RUNS = 5  #onafhankelijke random runs per combinatie van L en T, dit is eigenlijk equivalent aan gwn meer metingen nemen
+#maar: repeats laten ons een grote run opsplitsen in meerdere kleine, die kunnen dan over meerdere CPU cores verspreid worden
+#voor performance, elke repeat heeft ook zijn eigen RNG dus vermindert het een beetje de correlatie
+N_WORKERS = os.cpu_count() or 1  #laat zoveel taken tegelijk op cpu cores draaien
 SEED = 1234
+
 
 #functies
 
@@ -43,7 +45,8 @@ def set_seed(seed):
     np.random.seed(seed)
 
 
-@njit(cache=True, nogil=True)
+#zelfde als ising.py
+@njit(cache=True, nogil=True)  #nogil laat verschillende python threads tegelijk werken
 def wolff_step(spins, p_neighbour, marks, sites_i, sites_j, tag):
     L = spins.shape[0]
     row = np.random.randint(L)
@@ -84,6 +87,7 @@ def wolff_step(spins, p_neighbour, marks, sites_i, sites_j, tag):
     return cluster_size, tag + 1
 
 
+#zelfde als in ising.py
 @njit(cache=True, nogil=True)
 def sweep(spins, p_neighbour, marks, sites_i, sites_j, tag):
     visited = 0
@@ -93,9 +97,9 @@ def sweep(spins, p_neighbour, marks, sites_i, sites_j, tag):
     return tag
 
 
-def run(L, T, seed):
+def run(L, T, seed):  #een volledige simulatie voor een (L,T), vooral zelfde als ising.py, alleen andere meetwaarden
     rng = np.random.default_rng(seed)
-    spins = rng.choice([-1, 1], size=(L, L)).astype(np.int8)
+    spins = rng.choice([-1, 1], size=(L, L)).astype(np.int8)  #willekeurige beginstoestand
     marks = np.zeros((L, L), dtype=np.int32)
     sites_i = np.empty(L * L, dtype=np.int32)
     sites_j = np.empty(L * L, dtype=np.int32)
@@ -103,80 +107,84 @@ def run(L, T, seed):
 
     set_seed(seed)
     tag = 1
-    for _ in range(EQUILIBRATION_UPDATES):
+    for _ in range(EQUILIBRATION_UPDATES): #evenwichtstoestand bereiken
         tag = sweep(spins, p_neighbour, marks, sites_i, sites_j, tag)
 
-    m2 = []
-    m4 = []
-    for update in range(1, MEASUREMENT_UPDATES + 1):
-        tag = sweep(spins, p_neighbour, marks, sites_i, sites_j, tag)
+    m2 = []  #bewaar m^2, nodig voor de binder cumulant
+    m4 = []  #bewaar m^4, ook nodig voor de binder cumulant
+
+    for update in range(1, MEASUREMENT_UPDATES + 1):  #neem de metingen
+        tag = sweep(spins, p_neighbour, marks, sites_i, sites_j, tag)  #doe een sweep
         if update % SAMPLE_EVERY == 0:
-            m = spins.mean()
-            m2.append(m ** 2)
-            m4.append(m ** 4)
+            m = spins.mean()  #magnetizatie epr spin
+            m2.append(m ** 2)  #sla het tweede moment op
+            m4.append(m ** 4)  #sla het vierde moment op
     return m2, m4
 
 
-def binder(m2, m4):
+def binder(m2, m4):  #bereken de binder cumulant uit de momenten: U4 = 1 - <m4> / (3 <m2>^2)
     return 1 - np.mean(m4) / (3 * np.mean(m2) ** 2)
 
 
-def crossing(T_values, U1, U2):
-    difference = np.asarray(U1) - np.asarray(U2)
-    possible_crossings = []
+def crossing(T_values, U1, U2):  #zoek waar 2 binder curves elkaar snijden
+    difference = np.asarray(U1) - np.asarray(U2)  #verschil tussen beide curves bij elke T
+    possible_crossings = []  #alle kandidaten voor een snijpunt doen we hier
 
-    for i in range(len(T_values) - 1):
-        if difference[i] * difference[i + 1] <= 0:
-            fraction = difference[i] / (difference[i] - difference[i + 1])
-            possible_crossings.append(T_values[i] + fraction * (T_values[i + 1] - T_values[i]))
+    for i in range(len(T_values) - 1):  #neem elke paar opeenvolgende temperaturen
+        if difference[i] * difference[i + 1] <= 0:  #veranderd de temperatuur van teken? dan zit hier een snijpunt tussen
+            fraction = difference[i] / (difference[i] - difference[i + 1])  #lineaire interpolatie om de nulpunt te schatten
+            possible_crossings.append(T_values[i] + fraction * (T_values[i + 1] - T_values[i]))  #bereken nu de bijbehorende T
 
-    if not possible_crossings:
-        return None
-    return min(possible_crossings, key=lambda value: abs(value - T_CENTER))
-
-
-def binder_slope(T_values, U_values):
-    middle = np.argmin(abs(T_values - T_CENTER))
-    start = max(0, middle - SLOPE_POINTS // 2)
-    stop = min(len(T_values), start + SLOPE_POINTS)
-    start = stop - SLOPE_POINTS
-    return abs(np.polyfit(T_values[start:stop], U_values[start:stop], 1)[0])
+    if not possible_crossings:  #geen snijpunten in de domein?
+        return None  #geef niets terug zodat we dit kunnen melden
+    return min(possible_crossings, key=lambda value: abs(value - T_CENTER)) #neem de snijpunt die het dichts bij T_c ligt
 
 
-def run_task(L, T, repeat):
-    seed = SEED + 1000 * L + 100 * repeat + int(round(T * 1_000_000))
-    m2, m4 = run(L, T, seed)
-    return L, T, repeat, m2, m4
+def binder_slope(T_values, U_values):  #schat |dU/dT| rondom Tc
+    middle = np.argmin(abs(T_values - T_CENTER))  #zoek het T punt het dichtst bij Tc
+    half = SLOPE_POINTS // 2  #neem evenveel punten links als rechts
+    T_fit = T_values[middle - half:middle + half + 1]  #kleine T window rond Tc
+    U_fit = U_values[middle - half:middle + half + 1]  #bijbehorende binder waarden
+    return abs(np.polyfit(T_fit, U_fit, 1)[0])  #lineaire fit en pak de helling
 
 
+def run_task(L, T, repeat):  #elke thread runt deze functie
+    seed = SEED + 1000 * L + 100 * repeat + int(round(T * 1_000_000))  #unieke seed voor L,T,repeat
+    m2, m4 = run(L, T, seed)  #doe de simulatie
+    return L, T, repeat, m2, m4  #stuur de resultaten terug naar de main thread
+
+#voor elke combinatie van L,T en repeat willen we een simulatie hebben
 tasks = [(L, float(T), repeat) for L in L_values for T in T_values for repeat in range(N_RUNS)]
-results = {}
+results = {}  #hier bewaren we de resultaten
 
-with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:
-    futures = [executor.submit(run_task, L, T, repeat) for L, T, repeat in tasks]
-    for done, future in enumerate(as_completed(futures), 1):
-        L, T, repeat, m2, m4 = future.result()
-        results[L, T, repeat] = m2, m4
+with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:  #start de worker threads
+    futures = [executor.submit(run_task, L, T, repeat) for L, T, repeat in tasks]  #geef elke taak aan een worker
+    for done, future in enumerate(as_completed(futures), 1):  #pak taken op zodra ze klaar zijn
+        L, T, repeat, m2, m4 = future.result()  #haal het resultaat van die run op
+        results[L, T, repeat] = m2, m4  #bewaar het in de resultaten
         print(f"[{done}/{len(tasks)}] L={L}, T={T:.3f}", flush=True)
 
-curves = {}
-run_curves = {}
-for L in L_values:
-    curves[L] = []
-    run_curves[L] = [[] for _ in range(N_RUNS)]
-    for T in T_values:
-        m2 = []
-        m4 = []
-        for repeat in range(N_RUNS):
-            m2_run, m4_run = results[L, float(T), repeat]
-            m2.extend(m2_run)
-            m4.extend(m4_run)
-            run_curves[L][repeat].append(binder(m2_run, m4_run))
-        curves[L].append(binder(m2, m4))
+#nu binder cumulants berekenen uit de meetwaardes, waaruit we later de snijpunt berekenen
+
+#voor elke L,T combineer de repeat runs
+curves = {}  #de gemiddelde binder curve voor elke L
+run_curves = {}  #binder curves apart per repeat,voor de errors later
+for L in L_values:  #voor elke roostergrootte:
+    curves[L] = [] #begin met een lege gemiddelde binder curve
+    run_curves[L] = [[] for _ in range(N_RUNS)]  #geef iedere repeat zijn eigen curve lijst
+    for T in T_values:  #neem nu elke temperatuur:
+        m2 = []  #m2 van alle repeats
+        m4 = []  #m4 van alle repeats
+        for repeat in range(N_RUNS):  #en neem elke run voor deze L,T combinatie
+            m2_run, m4_run = results[L, float(T), repeat]  #pak de opgeslagen resultaten, elk elementen is een tuple van twee lijsten
+            m2.extend(m2_run)  #voeg resulaten samen in een array
+            m4.extend(m4_run) 
+            run_curves[L][repeat].append(binder(m2_run, m4_run))  #bewaar U per repeat nog apart (berekenen we onzekerheden mee later)
+        curves[L].append(binder(m2, m4))  #U met alle samples samen
 
 fig, ax = plt.subplots(figsize=(8, 5))
-for L in L_values:
-    ax.plot(T_values, curves[L], "o-", ms=3, label=f"L = {L}")
+for L in L_values:  #teken 1 curve voor iedere grootte
+    ax.plot(T_values, curves[L], "o-", ms=3, label=f"L = {L}") #teken ook de lijnen tussen punten om snijpunten te laten zien
 
 ax.set(
     title="Binder cumulants",
@@ -188,48 +196,47 @@ fig.tight_layout()
 fig.savefig("binder_cumulants.png", dpi=180)
 plt.show()
 
+#vergelijk steeds twee opeenvolgende L waarden om hun Tc snijpunt te vinden
 for L1, L2 in zip(L_values[:-1], L_values[1:]):
-    Tc_values = []
-    for repeat in range(N_RUNS):
-        Tc = crossing(T_values, run_curves[L1][repeat], run_curves[L2][repeat])
-        if Tc is not None:
-            Tc_values.append(Tc)
+    Tc_values = []  #elke repeat geeft een eigen snijpunt schatting
+    for repeat in range(N_RUNS):  #loop door onafhankelijke repeats
+        Tc = crossing(T_values, run_curves[L1][repeat], run_curves[L2][repeat])  #zoek die snijpunt
+        if Tc is not None:  #gebruik alleen repeats die echt een snijpunt vinden
+            Tc_values.append(Tc)  #bewaar de Tc sschatting
 
-    if not Tc_values:
+    if not Tc_values: #check of er wel snijpunten zijn gevonden
         print(f"No crossing found for L = {L1} and L = {L2}")
-    else:
-        Tc = np.mean(Tc_values)
-        if len(Tc_values) > 1:
-            error = np.std(Tc_values, ddof=1) / math.sqrt(len(Tc_values))
-            print(f"Tc from L = {L1} and L = {L2}: {Tc:.5f} ± {error:.5f}")
-        else:
-            print(f"Tc from L = {L1} and L = {L2}: {Tc:.5f}")
+    else:  #anders kunnen we een gemiddelde maken
+        Tc = np.mean(Tc_values)  #gemiddelde Tc van alle repeats
+        if len(Tc_values) > 1:  #alleen dan bestaat er een spreiding
+            error = np.std(Tc_values, ddof=1) / math.sqrt(len(Tc_values))  #standard error over repeats
+            print(f"Tc from L = {L1} and L = {L2}: {Tc:.5f} ± {error:.5f}")  #print Tc plus error
+        else:  #met 1 repeat kan je geen error berekenen
+            print(f"Tc from L = {L1} and L = {L2}: {Tc:.5f}")  #print alleen Tc
 
 
-slopes = {}
-for L in L_values:
-    slopes[L] = np.array([binder_slope(T_values, values) for values in run_curves[L]])
+#nu halen we de kritieke exponent 'nu' uit de schaal van de binder hellingen
+slopes = {}  #bewaar de hellingen voor iedere L
+for L in L_values:  #voor elke L:
+    slopes[L] = np.array([binder_slope(T_values, values) for values in run_curves[L]])  #sla op 1 slope per repeat
 
-mean_slopes = np.array([slopes[L].mean() for L in L_values])
-fit = np.polyfit(np.log(L_values), np.log(mean_slopes), 1)
-nu = 1 / fit[0]
+mean_slopes = np.array([slopes[L].mean() for L in L_values])  #gemiddelde helling per L
+fit = np.polyfit(np.log(L_values), np.log(mean_slopes), 1)  #log slope = (1/nu) log L + constante
 
-rng = np.random.default_rng(SEED)
-nu_values = []
-for _ in range(1000):
-    bootstrap_slopes = []
-    for L in L_values:
-        values = slopes[L]
-        bootstrap_slopes.append(rng.choice(values, len(values)).mean())
-    bootstrap_fit = np.polyfit(np.log(L_values), np.log(bootstrap_slopes), 1)
-    nu_values.append(1 / bootstrap_fit[0])
+#onzekerheid in nu uit de repeats
+nu_values = []  #1 nu schatting per repeat
+for repeat in range(N_RUNS):  #doe dezelfde exponent fit voor iedere repeat
+    repeat_slopes = [binder_slope(T_values, run_curves[L][repeat]) for L in L_values]
+    repeat_fit = np.polyfit(np.log(L_values), np.log(repeat_slopes), 1)
+    nu_values.append(1 / repeat_fit[0])  #de nu is 1/helling
 
-nu_error = np.std(nu_values, ddof=1)
+nu = np.mean(nu_values)
+nu_error = np.std(nu_values, ddof=1) / math.sqrt(N_RUNS)
 print(f"nu from Binder slopes: {nu:.4f} ± {nu_error:.4f}")
 
-fig, ax = plt.subplots(figsize=(6, 4))
-ax.loglog(L_values, mean_slopes, "o", label="measured slopes")
-ax.loglog(L_values, np.exp(fit[1]) * np.asarray(L_values) ** fit[0], "-", label=f"1/nu = {fit[0]:.3f}")
+fig, ax = plt.subplots(figsize=(6, 4))  #tweede plot voor de 'nu' fits
+ax.loglog(L_values, mean_slopes, "o", label="measured slopes")  #meetpunten in log-log ruimte
+ax.loglog(L_values, np.exp(fit[1]) * np.asarray(L_values) ** fit[0], "-", label=f"1/nu = {fit[0]:.3f}")  # fit lijn
 ax.set(xlabel="lattice size L", ylabel=r"$|dU/dT|$")
 ax.legend()
 fig.tight_layout()
