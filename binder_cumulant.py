@@ -25,7 +25,6 @@ T_values = np.linspace(  #maak een gelijk verdeelde temperatuur grid
 SLOPE_POINTS = 5  #aantal punten rond Tc voor een binder slope fit
 
 #model parameters
-h = 0.0  #voor binder crossings hebben we een veld van 0 nodig
 J = 1.0  #standaard koppeling
 
 EQUILIBRATION_UPDATES = 50 #om wat sneller te gaan hebben we minder sweeps dan ising.py

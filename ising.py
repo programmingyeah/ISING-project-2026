@@ -9,7 +9,6 @@ from numba import njit  #maakt de trage functies sneller
 
 L = 512 
 T = 2.269185 
-h = 0.0  #extern magnetisch veld
 J = 1.0  #sterkte waarmee buren willen alignen
 
 EQUILIBRATION_SWEEPS = 50  #eerst zoveel sweeps om een evenwichtstoestand te bereiken (voor de metingen)
@@ -27,7 +26,7 @@ def set_seed(seed): #numba kan niet de python RNG gebruiken, dus configureren we
 
 
 @njit(cache=True)
-def wolff_step(spins, p_neighbour, p_ghost, h, marks, sites_i, sites_j, tag): #maakt een cluster
+def wolff_step(spins, p_neighbour, marks, sites_i, sites_j, tag): #maakt een cluster
     L = spins.shape[0]  #geen global parameters, dus L afleiden uit de grootte van de spins array
     row = np.random.randint(L)  #willekeurige rij
     col = np.random.randint(L)  #willekeurige kolom
@@ -46,16 +45,11 @@ def wolff_step(spins, p_neighbour, p_ghost, h, marks, sites_i, sites_j, tag): #m
 
     cluster_size = 1  #er zit nu 1 spin in de cluster
     current = 0  #we zitten op de eerste spin, beginnen met 0
-    touches_ghost = False  #houdt bij of de cluster naast een ghost spin zit
-    ghost_spin = 1 if h >= 0 else -1  #de ghost spin veld is alveral hetzelfde, en wijst met de magneetveld mee
 
     while current < cluster_size:  #ga door tot elke cluster spin bekeken is
         i = sites_i[current]  #pak de rij en kolom van de huidige cluster spin
         j = sites_j[current] 
         current += 1  #volgende keer nemen we de volgende cluster spin (als er nog meer zijn)
-
-        if h != 0 and spin == ghost_spin and np.random.random() < p_ghost:  #zijn we verbonden met de ghostveld?
-            touches_ghost = True  #dan mag de spin niet veranderen (check de latere if statement 'if not touches_ghost')
 
         for direction in range(4):  #check de 4 buren
             if direction == 0: 
@@ -75,19 +69,18 @@ def wolff_step(spins, p_neighbour, p_ghost, h, marks, sites_i, sites_j, tag): #m
                     sites_j[cluster_size] = nj  
                     cluster_size += 1  #nu hebben we een spin toegevoegd
 
-    if not touches_ghost:  #cluster flipt alleen als het nooit een ghost heeft geraakt
-        for k in range(cluster_size):  #neem alle spins in de cluster
-            spins[sites_i[k], sites_j[k]] *= -1  #flip de spins
+    for k in range(cluster_size):  #neem alle spins in de cluster
+        spins[sites_i[k], sites_j[k]] *= -1  #flip de spins
 
     return cluster_size, tag + 1  #geef grootte terug plus een nieuwe tag
 
 
 @njit(cache=True)
-def sweep(spins, p_neighbour, p_ghost, h, marks, sites_i, sites_j, tag): #doe ongeveer LxL wolff steps (kan minder zijn met grote wolff steps)
+def sweep(spins, p_neighbour, marks, sites_i, sites_j, tag): #doe ongeveer LxL wolff steps (kan minder zijn met grote wolff steps)
     visited = 0  #totaal aantal spins die geflipt zijn
     while visited < spins.size:  #stop zodra we ongeveer 1 volledig rooster bezocht hebben
         cluster_size, tag = wolff_step(  #flip een cluster
-            spins, p_neighbour, p_ghost, h, marks, sites_i, sites_j, tag
+            spins, p_neighbour, marks, sites_i, sites_j, tag
         )
 
         visited += cluster_size 
@@ -105,7 +98,7 @@ def mean_and_error(values):  #gemiddelde en blocked standard error
 def energy_per_spin(spins):
     bonds = np.sum(spins * np.roll(spins, -1, axis=0))  #alle vetricale bond energieen
     bonds += np.sum(spins * np.roll(spins, -1, axis=1))  #alle horizontale bond energieen
-    return (-J * bonds - h * spins.sum()) / spins.size  #deel de totale energie door het aantal spins
+    return -J * bonds / spins.size  #deel de totale energie door het aantal spins
 
 
 def heat_capacity_and_error(energy):  
@@ -123,12 +116,10 @@ def heat_capacity_and_error(energy):
 
 rng = np.random.default_rng(SEED)  #normale numpy RNG voor de beginswaarden
 p_neighbour = 1 - math.exp(-2 * J / T)  #kans om een cluster uit te breiden
-p_ghost = 1 - math.exp(-2 * abs(h) / T)  #kans op een bond met de ghost spin
 
 #als T dichtbij 0 is kan p_neighbour afronden naar 1.0 door floating point errors
 if p_neighbour == 1.0:  #dan is een uniforme grondtoestand het veiligst
-    starting_spin = 1 if h >= 0 else -1  #kies de richting die bij het veld hoort
-    spins = np.full((L, L), starting_spin, dtype=np.int8)  #vul heel het rooster met die spin, int8 is een kleine datatype
+    spins = np.full((L, L), 1, dtype=np.int8)  #kies 1 van de 2 gelijke grondtoestanden
     #spin is of +1 of -1 dus een standaard int64 zou een verspilling van geheugen zijn
 else:  #bij gewone temperaturen starten we random
     spins = rng.choice([-1, 1], size=(L, L)).astype(np.int8)
@@ -142,7 +133,7 @@ tag = 1  #eerste unieke label voor clusters
 print("equilibration: 0%", flush=True)
 next_progress = 10
 for update in range(1, EQUILIBRATION_SWEEPS + 1):  #begin de burn-in sweeps
-    tag = sweep(spins, p_neighbour, p_ghost, h, marks, sites_i, sites_j, tag)  #standaard update
+    tag = sweep(spins, p_neighbour, marks, sites_i, sites_j, tag)  #standaard update
     percent = 100 * update // EQUILIBRATION_SWEEPS
     if percent >= next_progress:  #print alleen elke 10 procent
         print(f"equilibration: {percent}%", flush=True)  #laat de voortgang zien
@@ -153,7 +144,7 @@ energy = []  #energie per spin metingen
 print("measurement: 0%", flush=True)
 next_progress = 10
 for update in range(1, MEASUREMENT_SWEEPS + 1):  #begin de meet sweeps
-    tag = sweep(spins, p_neighbour, p_ghost, h, marks, sites_i, sites_j, tag)  #standaard update
+    tag = sweep(spins, p_neighbour, marks, sites_i, sites_j, tag)  #standaard update
     if update % SAMPLE_EVERY == 0:  #niet elke sweep meten om correlatie te verminderen
         m = spins.mean()  #magnetisatie per spin van deze configuratie
         absolute_magnetization.append(abs(m))  #|m| opslaan
@@ -175,6 +166,6 @@ print(f"heat capacity:     {heat_capacity_c:.4f} ± {heat_capacity_error:.4f}")
 
 fig, ax = plt.subplots(figsize=(7, 7))
 ax.imshow(spins, cmap="binary", vmin=-1, vmax=1, interpolation="nearest")
-ax.set(title=f"2D Ising model at T = {T}, h = {h}", xticks=[], yticks=[])
+ax.set(title=f"2D Ising model at T = {T}", xticks=[], yticks=[])
 fig.tight_layout()
 plt.show()
