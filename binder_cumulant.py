@@ -110,20 +110,22 @@ def run(L, T, seed):  #een volledige simulatie voor een (L,T), vooral zelfde als
     for _ in range(EQUILIBRATION_UPDATES): #evenwichtstoestand bereiken
         tag = sweep(spins, p_neighbour, marks, sites_i, sites_j, tag)
 
-    m2 = []  #bewaar m^2, nodig voor de binder cumulant
-    m4 = []  #bewaar m^4, ook nodig voor de binder cumulant
+    m2_total = 0.0  #tel alle m^2 metingen op
+    m4_total = 0.0  #tel alle m^4 metingen op
+    samples = 0  #houd bij hoeveel metingen we echt nemen
 
     for update in range(1, MEASUREMENT_UPDATES + 1):  #neem de metingen
         tag = sweep(spins, p_neighbour, marks, sites_i, sites_j, tag)  #doe een sweep
         if update % SAMPLE_EVERY == 0:
             m = spins.mean()  #magnetizatie epr spin
-            m2.append(m ** 2)  #sla het tweede moment op
-            m4.append(m ** 4)  #sla het vierde moment op
-    return m2, m4
+            m2_total += m ** 2  #voeg m^2 toe aan de som
+            m4_total += m ** 4  #voeg m^4 toe aan de som
+            samples += 1  #er is nu 1 sample meer
+    return m2_total / samples, m4_total / samples  #geef alleen <m2> en <m4> terug
 
 
-def binder(m2, m4):  #bereken de binder cumulant uit de momenten: U4 = 1 - <m4> / (3 <m2>^2)
-    return 1 - np.mean(m4) / (3 * np.mean(m2) ** 2)
+def binder(mean_m2, mean_m4):  #bereken U = 1 - <m4> / (3 <m2>^2)
+    return 1 - mean_m4 / (3 * mean_m2 ** 2)
 
 
 def crossing(T_values, U1, U2):  #zoek waar 2 binder curves elkaar snijden
@@ -150,8 +152,8 @@ def binder_slope(T_values, U_values):  #schat |dU/dT| rondom Tc
 
 def run_task(L, T, repeat):  #elke thread runt deze functie
     seed = SEED + 1000 * L + 100 * repeat + int(round(T * 1_000_000))  #unieke seed voor L,T,repeat
-    m2, m4 = run(L, T, seed)  #doe de simulatie
-    return L, T, repeat, m2, m4  #stuur de resultaten terug naar de main thread
+    mean_m2, mean_m4 = run(L, T, seed)  #doe de simulatie
+    return L, T, repeat, mean_m2, mean_m4  #stuur de momenten terug naar de main thread
 
 #voor elke combinatie van L,T en repeat willen we een simulatie hebben
 tasks = [(L, float(T), repeat) for L in L_values for T in T_values for repeat in range(N_RUNS)]
@@ -160,8 +162,8 @@ results = {}  #hier bewaren we de resultaten
 with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:  #start de worker threads
     futures = [executor.submit(run_task, L, T, repeat) for L, T, repeat in tasks]  #geef elke taak aan een worker
     for done, future in enumerate(as_completed(futures), 1):  #pak taken op zodra ze klaar zijn
-        L, T, repeat, m2, m4 = future.result()  #haal het resultaat van die run op
-        results[L, T, repeat] = m2, m4  #bewaar het in de resultaten
+        L, T, repeat, mean_m2, mean_m4 = future.result()  #haal het resultaat van die run op
+        results[L, T, repeat] = mean_m2, mean_m4  #bewaar de twee gemiddelden
         print(f"[{done}/{len(tasks)}] L={L}, T={T:.3f}", flush=True)
 
 #nu binder cumulants berekenen uit de meetwaardes, waaruit we later de snijpunt berekenen
@@ -173,14 +175,14 @@ for L in L_values:  #voor elke roostergrootte:
     curves[L] = [] #begin met een lege gemiddelde binder curve
     run_curves[L] = [[] for _ in range(N_RUNS)]  #geef iedere repeat zijn eigen curve lijst
     for T in T_values:  #neem nu elke temperatuur:
-        m2 = []  #m2 van alle repeats
-        m4 = []  #m4 van alle repeats
+        m2_values = []  #gemiddelde m2 van elke repeat
+        m4_values = []  #gemiddelde m4 van elke repeat
         for repeat in range(N_RUNS):  #en neem elke run voor deze L,T combinatie
-            m2_run, m4_run = results[L, float(T), repeat]  #pak de opgeslagen resultaten, elk elementen is een tuple van twee lijsten
-            m2.extend(m2_run)  #voeg resulaten samen in een array
-            m4.extend(m4_run) 
-            run_curves[L][repeat].append(binder(m2_run, m4_run))  #bewaar U per repeat nog apart (berekenen we onzekerheden mee later)
-        curves[L].append(binder(m2, m4))  #U met alle samples samen
+            mean_m2, mean_m4 = results[L, float(T), repeat]  #pak <m2> en <m4> van deze repeat
+            m2_values.append(mean_m2)  #bewaar <m2> van deze repeat
+            m4_values.append(mean_m4)  #bewaar <m4> van deze repeat
+            run_curves[L][repeat].append(binder(mean_m2, mean_m4))  #bewaar U per repeat voor de errors
+        curves[L].append(binder(np.mean(m2_values), np.mean(m4_values)))  #U met alle repeats samen
 
 fig, ax = plt.subplots(figsize=(8, 5))
 for L in L_values:  #teken 1 curve voor iedere grootte
