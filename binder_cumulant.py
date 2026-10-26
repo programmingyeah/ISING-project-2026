@@ -183,19 +183,27 @@ for L in L_values:  #voor elke roostergrootte:
             run_curves[L][repeat].append(binder(mean_m2, mean_m4))  #bewaar U per repeat voor de errors
         curves[L].append(binder(np.mean(m2_values), np.mean(m4_values)))  #U met alle repeats samen
 
+
+script_dir = os.path.dirname(__file__)
+graphs_dir = os.path.join(script_dir, 'final_graphs/')
+
+if not os.path.isdir(graphs_dir):
+    os.makedirs(graphs_dir)
+
 fig, ax = plt.subplots(figsize=(8, 5))
 for L in L_values:  #teken 1 curve voor iedere grootte
     ax.plot(T_values, curves[L], "o-", ms=3, label=f"L = {L}") #teken ook de lijnen tussen punten om snijpunten te laten zien
 
-ax.set(
-    title="Binder cumulants",
-    xlabel="temperature T",
-    ylabel="Binder cumulant U",
-)
-ax.legend()
+ax.set_title("Binder cumulants", fontsize='15')
+ax.set_xlabel("Temperature $\it{T}$", fontsize='13')
+ax.set_ylabel("Binder cumulant $\it{U}$", fontsize ='13')
+plt.xticks(fontsize = '13')
+plt.yticks(fontsize = '13')
+ax.legend(fontsize='13')
 fig.tight_layout()
-fig.savefig("binder_cumulants.png", dpi=180)
+fig.savefig(graphs_dir + "binder_cumulants.png", dpi=180)
 plt.show()
+
 
 #vergelijk steeds twee opeenvolgende L waarden om hun Tc snijpunt te vinden
 for L1, L2 in zip(L_values[:-1], L_values[1:]):
@@ -238,8 +246,12 @@ print(f"nu from Binder slopes: {nu:.4f} ± {nu_error:.4f}")
 fig, ax = plt.subplots(figsize=(6, 4))  #tweede plot voor de 'nu' fits
 ax.loglog(L_values, mean_slopes, "o", label="measured slopes")  #meetpunten in log-log ruimte
 ax.loglog(L_values, np.exp(fit[1]) * np.asarray(L_values) ** fit[0], "-", label=f"1/nu = {fit[0]:.3f}")  # fit lijn
-ax.set(xlabel="lattice size L", ylabel=r"$|dU/dT|$")
-ax.legend()
+ax.set_xlabel("Lattice size $\it{L}$", fontsize='13')
+ax.set_ylabel(r"$|dU/dT|$", fontsize ='13')
+plt.xticks(fontsize = '13')
+plt.yticks(fontsize = '13')
+ax.legend(fontsize = '13')
 fig.tight_layout()
-fig.savefig("binder_slopes.png", dpi=180)
+fig.savefig(graphs_dir + "binder_slopes.png", dpi=180)
 plt.show()
+
