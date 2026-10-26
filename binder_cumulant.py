@@ -195,8 +195,8 @@ for L in L_values:  #teken 1 curve voor iedere grootte
     ax.plot(T_values, curves[L], "o-", ms=3, label=f"L = {L}") #teken ook de lijnen tussen punten om snijpunten te laten zien
 
 ax.set_title("Binder cumulants", fontsize='15')
-ax.set_xlabel("Temperature $\it{T}$", fontsize='13')
-ax.set_ylabel("Binder cumulant $\it{U}$", fontsize ='13')
+ax.set_xlabel(r"Temperature $T$", fontsize='13')
+ax.set_ylabel(r"Binder cumulant $U$", fontsize ='13')
 plt.xticks(fontsize = '13')
 plt.yticks(fontsize = '13')
 ax.legend(fontsize='13')
@@ -244,10 +244,10 @@ nu_error = np.std(nu_values, ddof=1) / math.sqrt(N_RUNS)
 print(f"nu from Binder slopes: {nu:.4f} ± {nu_error:.4f}")
 
 fig, ax = plt.subplots(figsize=(6, 4))  #tweede plot voor de 'nu' fits
-ax.loglog(L_values, mean_slopes, "o", label="measured slopes")  #meetpunten in log-log ruimte
-ax.loglog(L_values, np.exp(fit[1]) * np.asarray(L_values) ** fit[0], "-", label=f"1/nu = {fit[0]:.3f}")  # fit lijn
-ax.set_xlabel("Lattice size $\it{L}$", fontsize='13')
-ax.set_ylabel(r"$|dU/dT|$", fontsize ='13')
+ax.loglog(L_values, mean_slopes, "o", label="Measured slopes")  #meetpunten in log-log ruimte
+ax.loglog(L_values, np.exp(fit[1]) * np.asarray(L_values) ** fit[0], "-", label=f"1/nu ≈ {fit[0]:.3f}")  # fit lijn
+ax.set_xlabel(r"Lattice size $log(L)$", fontsize='13')
+ax.set_ylabel(r"$log(|dU/dT|)$", fontsize ='13')
 plt.xticks(fontsize = '13')
 plt.yticks(fontsize = '13')
 ax.legend(fontsize = '13')
