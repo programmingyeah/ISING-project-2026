@@ -7,15 +7,15 @@ from numba import njit  #maakt de trage functies sneller
 
 #opties
 
-L = 512 
+L = 1024
 T = 2.269185 
 J = 1.0  #sterkte waarmee buren willen alignen
 
-EQUILIBRATION_SWEEPS = 50  #eerst zoveel sweeps om een evenwichtstoestand te bereiken (voor de metingen)
+EQUILIBRATION_SWEEPS = 200  #eerst zoveel sweeps om een evenwichtstoestand te bereiken (voor de metingen)
 MEASUREMENT_SWEEPS = 1000  #daarna zoveel sweeps voor de metingen zelf
-SAMPLE_EVERY = 2  #elke SAMPLE_EVERY sweeps wordt een meting, dus totaal metingen = MEASUREMENT_SWEEPS/SAMPLE_EVERY
+SAMPLE_EVERY = 1  #elke SAMPLE_EVERY sweeps wordt een meting, dus totaal metingen = MEASUREMENT_SWEEPS/SAMPLE_EVERY
 BLOCK_SIZE = 20  #aantal metingen in een blok voor bepalen van onzekerheden
-SEED = 1234  #zelfde seed = zelfde run
+SEED = 12347  #zelfde seed = zelfde run
 
 
 #functies

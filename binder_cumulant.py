@@ -10,31 +10,31 @@ from numba import njit
 #opties
 
 #resoluties
-L_values = [8, 16, 32, 64, 128, 256]  #alle rooster groottes die we vergelijken
+L_values = [64, 128, 256, 512]  #alle rooster groottes die we vergelijken
 
 #temperatuur domein
 T_CENTER = 2.269185  #beste huidige schatting voor Tc
-T_UNCERTAINTY = 0.06  #onzekerheid van die schatting
-RANGE_SIGMAS = 5  #scan van center min 5 sigma tot center plus 5 sigma
-N_TEMPERATURES = 21  #zoveel temperaturen in de scan
+T_UNCERTAINTY = 0.001  #onzekerheid van die schatting
+RANGE_SIGMAS = 3  #scan van center min 5 sigma tot center plus 5 sigma
+N_TEMPERATURES = 31  #zoveel temperaturen in de scan
 T_values = np.linspace(  #maak een gelijk verdeelde temperatuur grid
     T_CENTER - RANGE_SIGMAS * T_UNCERTAINTY,  #onderkant van het domein
     T_CENTER + RANGE_SIGMAS * T_UNCERTAINTY,  #bovenkant van het domein
     N_TEMPERATURES,  #aantal punten in dat domein
 )
-SLOPE_POINTS = 5  #aantal punten rond Tc voor een binder slope fit
+SLOPE_POINTS = 15  #aantal punten rond Tc voor een binder slope fit
 
 #model parameters
 J = 1.0  #standaard koppeling
 
-EQUILIBRATION_UPDATES = 50 #om wat sneller te gaan hebben we minder sweeps dan ising.py
-MEASUREMENT_UPDATES = 200
+EQUILIBRATION_UPDATES = 100 #om wat sneller te gaan hebben we minder sweeps dan ising.py
+MEASUREMENT_UPDATES = 600
 SAMPLE_EVERY = 1
 N_RUNS = 5  #onafhankelijke random runs per combinatie van L en T, dit is eigenlijk equivalent aan gwn meer metingen nemen
 #maar: repeats laten ons een grote run opsplitsen in meerdere kleine, die kunnen dan over meerdere CPU cores verspreid worden
 #voor performance, elke repeat heeft ook zijn eigen RNG dus vermindert het een beetje de correlatie
 N_WORKERS = os.cpu_count() or 1  #laat zoveel taken tegelijk op cpu cores draaien
-SEED = 1234
+SEED = 12346
 
 
 #functies
@@ -231,7 +231,7 @@ for repeat in range(N_RUNS):  #doe dezelfde exponent fit voor iedere repeat
     repeat_fit = np.polyfit(np.log(L_values), np.log(repeat_slopes), 1)
     nu_values.append(1 / repeat_fit[0])  #de nu is 1/helling
 
-nu = np.mean(nu_values)
+nu = 1 / fit[0]
 nu_error = np.std(nu_values, ddof=1) / math.sqrt(N_RUNS)
 print(f"nu from Binder slopes: {nu:.4f} ± {nu_error:.4f}")
 
